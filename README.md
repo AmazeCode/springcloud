@@ -62,3 +62,228 @@ eureka.server.enable-self-preservation=false
 5、简单看一下eureka server控制台，实例信息区，运行环境信息区，Eureka Server自身信息区。
 
 ![image-20220103211443787](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-dashboard.png)
+
+### Eureka 高可用
+
+1、准备
+
+准备2个节点部署eureka，也可以单机部署
+
+修改本机host文件，绑定一个主机名，单机部署时使用ip地址会有问题
+
+```
+127.0.0.1 ek1.com
+127.0.0.1 ek2.com
+```
+
+2、新建两个项目，引入依赖
+
+```java
+ <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+        </dependency>
+        <!-- 权限依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <!-- 监控依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+```
+
+3、application.properties配置文件
+
+节点1：
+
+```
+# 设置服务名
+spring.application.name=EurekaServer
+#web端口，服务是由这个端口处理rest请求的
+server.port=7901
+
+#是否将自己注册到其他Eureka Server,默认为true 需要
+eureka.client.register-with-eureka=true
+#是否从eureka server获取注册信息， 需要
+eureka.client.fetch-registry=true
+# 此节点应向其他节点发起请求,带上认证用户密码（设置服务注册中心的URL，用于client和server端交流）
+eureka.client.service-url.defaultZone=http://admin:admin@ek2.com:7902/eureka/
+#主机名，必填
+eureka.instance.hostname=ek1.com
+
+# 是否actuator端点启用和暴露，  启用
+#management.endpoint.shutdown.enabled=true
+# * 可以用来表示所有的端点，例如，通过HTTP公开所有的端点，除了env和beans端点
+management.endpoints.web.exposure.include=*
+#management.endpoints.web.exposure.exclude=env,beans
+
+# 自定义元数据,服务内可获取,可被其他微服务读取到
+eureka.instance.metadata-map.dalao=xiaoming1
+#关闭自我保护
+#eureka.server.enable-self-preservation=false
+
+#安全认证
+spring.security.user.name=admin
+spring.security.user.password=admin
+
+```
+
+节点2：
+
+```
+# 设置服务名
+spring.application.name=EurekaServer
+#web端口，服务是由这个端口处理rest请求的
+server.port=7902
+
+#是否将自己注册到其他Eureka Server,默认为true 需要
+eureka.client.register-with-eureka=true
+#是否从eureka server获取注册信息， 需要
+eureka.client.fetch-registry=true
+# 此节点应向其他节点发起请求,带上认证用户密码（设置服务注册中心的URL，用于client和server端交流）
+eureka.client.service-url.defaultZone=http://admin:admin@ek1.com:7901/eureka/
+#主机名，必填
+eureka.instance.hostname=ek2.com
+
+# 是否actuator端点启用和暴露，  启用
+#management.endpoint.shutdown.enabled=true
+# * 可以用来表示所有的端点，例如，通过HTTP公开所有的端点，除了env和beans端点
+management.endpoints.web.exposure.include=*
+#management.endpoints.web.exposure.exclude=env,beans
+
+# 自定义元数据,服务内可获取,可被其他微服务读取到
+eureka.instance.metadata-map.dalao=xiaoming2
+#关闭自我保护
+#eureka.server.enable-self-preservation=false
+
+#安全认证
+spring.security.user.name=admin
+spring.security.user.password=admin
+```
+
+4、开启权限认证，需要关闭csrf认证，否则不生效
+
+```
+@EnableWebSecurity
+@Configuration
+public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.csrf().disable();// 关闭csrf
+        http.authorizeRequests().anyRequest().authenticated().and().httpBasic();//开启认证
+    }
+}
+```
+
+![image-20220103225129658](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-security-login.png)
+
+![image-20220103225445215](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-cluster.png)
+
+5、监控信息查看
+
+http://localhost:7902/actuator
+
+```
+{
+    "_links":{
+        "self":{
+            "href":"http://localhost:7902/actuator",
+            "templated":false
+        },
+        "beans":{
+            "href":"http://localhost:7902/actuator/beans",
+            "templated":false
+        },
+        "caches-cache":{
+            "href":"http://localhost:7902/actuator/caches/{cache}",
+            "templated":true
+        },
+        "caches":{
+            "href":"http://localhost:7902/actuator/caches",
+            "templated":false
+        },
+        "health":{
+            "href":"http://localhost:7902/actuator/health",
+            "templated":false
+        },
+        "health-path":{
+            "href":"http://localhost:7902/actuator/health/{*path}",
+            "templated":true
+        },
+        "info":{
+            "href":"http://localhost:7902/actuator/info",
+            "templated":false
+        },
+        "conditions":{
+            "href":"http://localhost:7902/actuator/conditions",
+            "templated":false
+        },
+        "configprops":{
+            "href":"http://localhost:7902/actuator/configprops",
+            "templated":false
+        },
+        "configprops-prefix":{
+            "href":"http://localhost:7902/actuator/configprops/{prefix}",
+            "templated":true
+        },
+        "env":{
+            "href":"http://localhost:7902/actuator/env",
+            "templated":false
+        },
+        "env-toMatch":{
+            "href":"http://localhost:7902/actuator/env/{toMatch}",
+            "templated":true
+        },
+        "loggers":{
+            "href":"http://localhost:7902/actuator/loggers",
+            "templated":false
+        },
+        "loggers-name":{
+            "href":"http://localhost:7902/actuator/loggers/{name}",
+            "templated":true
+        },
+        "heapdump":{
+            "href":"http://localhost:7902/actuator/heapdump",
+            "templated":false
+        },
+        "threaddump":{
+            "href":"http://localhost:7902/actuator/threaddump",
+            "templated":false
+        },
+        "metrics-requiredMetricName":{
+            "href":"http://localhost:7902/actuator/metrics/{requiredMetricName}",
+            "templated":true
+        },
+        "metrics":{
+            "href":"http://localhost:7902/actuator/metrics",
+            "templated":false
+        },
+        "scheduledtasks":{
+            "href":"http://localhost:7902/actuator/scheduledtasks",
+            "templated":false
+        },
+        "mappings":{
+            "href":"http://localhost:7902/actuator/mappings",
+            "templated":false
+        },
+        "refresh":{
+            "href":"http://localhost:7902/actuator/refresh",
+            "templated":false
+        },
+        "features":{
+            "href":"http://localhost:7902/actuator/features",
+            "templated":false
+        },
+        "serviceregistry":{
+            "href":"http://localhost:7902/actuator/serviceregistry",
+            "templated":false
+        }
+    }
+}
+```
+
+eureka高可用服务搭建完成
