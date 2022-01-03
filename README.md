@@ -3,7 +3,7 @@
 
 #### 注册中心和微服务间的关系
 
-> ![image-20220103210636654](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-client.png) 《服务注册与发现关系图》
+> ![eureka-server-client](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-client.png) 《服务注册与发现关系图》
 
 #### client功能
 
@@ -61,7 +61,7 @@ eureka.server.enable-self-preservation=false
 
 5、简单看一下eureka server控制台，实例信息区，运行环境信息区，Eureka Server自身信息区。
 
-![image-20220103211443787](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-dashboard.png)
+![eureka-server-dashboard](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-dashboard.png)
 
 ### Eureka 高可用
 
@@ -179,9 +179,9 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 }
 ```
 
-![image-20220103225129658](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-security-login.png)
+![eureka-security-login](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-security-login.png)
 
-![image-20220103225445215](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-cluster.png)
+![eureka-server-client](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-cluster.png)
 
 5、监控信息查看
 
