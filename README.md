@@ -3,8 +3,7 @@
 
 #### 注册中心和微服务间的关系
 
-> ![image-20220103210636654](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-client.png)  
-> ![image-20220103210636654](https://github.com/AmazeCode/springcloud/blob/main/img/eureka-security-login.png)  《服务注册与发现关系图》
+> ![image-20220103210636654](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\eureka-server-client.png) 《服务注册与发现关系图》
 
 #### client功能
 
