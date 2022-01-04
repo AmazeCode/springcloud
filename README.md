@@ -287,3 +287,125 @@ http://localhost:7902/actuator
 ```
 
 eureka高可用服务搭建完成
+
+#### 创建Eureka-Provider(生产者)
+
+1、创建项目,maven依赖
+
+```
+<!-- springboot web依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- eureka客户端依赖 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- 用来上报节点信息 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+```
+
+2、application.properties配置文件
+
+```
+# 服务名
+spring.application.name=eureka-provider
+# 端口号
+server.port=8091
+
+# 注册中心服务地址
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+# 元数据
+eureka.instance.metadata-map.dalao=xiaojun
+# 开放所有站点
+management.endpoints.web.exposure.include=*
+# 可以远程关闭服务节点
+management.endpoint.shutdown.enabled=true
+# 可以上报服务的真实健康状态
+eureka.client.healthcheck.enabled=true
+```
+
+3、java代码
+
+servcie：
+
+```java
+@Service
+public class HealthService implements HealthIndicator {
+
+    private Boolean status = true;
+
+    public String getStatus() {
+        return status.toString();
+    }
+
+    public void setStatus(Boolean status) {
+        this.status = status;
+    }
+
+    @Override
+    public Health health() {
+        if (status) {
+            // 标记上线
+            return new Health.Builder().up().build();
+        }
+        // 设置下线
+        return new Health.Builder().down().build();
+    }
+}
+```
+
+controller：
+
+```java
+@RestController
+public class EurekaProviderController {
+
+    /**
+     *   获取服务名称
+     */
+    @Value("${spring.application.name}")
+    private String applicationName;
+
+    /**
+     *   获取服务端口号
+     */
+    @Value("${server.port}")
+    private String port;
+
+    @Autowired
+    private HealthService healthService;
+
+    /**
+     * @description: 获取服务信息
+     * @param:
+     * @return: java.lang.String
+     * @author: zhangyadong
+     * @date: 2022/1/4 16:50
+     */
+    @GetMapping("/getServer")
+    public String getServerMsg(){
+        return applicationName +":"+port;
+    }
+    
+    /**
+     * @description: 获取服务状态
+     * @param: status
+     * @return: java.lang.String
+     * @author: zhangyadong
+     * @date: 2022/1/4 16:58
+     */
+    @GetMapping("/health")
+    public String health(@RequestParam("status") Boolean status){
+        healthService.setStatus(status);
+        return healthService.getStatus();
+    }
+}
+```
+
+如果测试负载均衡可以按照同样的方式创建其他provider，修改服务名端口即可
