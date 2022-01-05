@@ -8,26 +8,43 @@
         <version>2.2.6.RELEASE</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.amazecode</groupId>
-    <artifactId>eureka-server-euk2</artifactId>
+    <groupId>com.eureka.consumer</groupId>
+    <artifactId>eureka-consumer</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>eureka-server-euk2</name>
+    <name>eureka-consumer</name>
     <description>Demo project for Spring Boot</description>
     <properties>
         <java.version>1.8</java.version>
+        <!--<spring-cloud.version>2021.0.0</spring-cloud.version>-->
         <spring-cloud.version>Hoxton.SR3</spring-cloud.version>
     </properties>
     <dependencies>
         <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
-        </dependency>
-        <!-- 权限依赖 -->
-        <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-security</artifactId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-        <!-- 监控依赖 -->
+        <!-- eureka 依赖中已经引入了ribbon -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!--
+            ribbon 依赖
+            如果是Hoxton.SR3版本,可以自动引入ribbon依赖不需要引入下面两个jar,后续版本则需要引入
+            <spring-cloud.version>Hoxton.SR3</spring-cloud.version>
+         -->
+        <!--<dependency>
+            <groupId>com.netflix.ribbon</groupId>
+            <artifactId>ribbon</artifactId>
+            <version>2.7.18</version>
+        </dependency>-->
+        <!--<dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-ribbon</artifactId>
+            <version>2.2.10.RELEASE</version>
+        </dependency>-->
+
+        <!-- 用来上报节点信息 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>

@@ -1,6 +1,5 @@
 package com.amazecode.eureka.provider.service;
 
-import com.netflix.appinfo.HealthCheckHandler;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Service;
