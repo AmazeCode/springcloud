@@ -704,3 +704,276 @@ ribbon.listOfServers=localhost:8091,localhost:8092
 }
 ```
 
+*注意点：*Hoxton.SR3之后版本使用ribbon需要手动添加ribbon依赖
+
+```java
+<!-- 稳定版本 -->
+<parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.2.6.RELEASE</version>
+    <relativePath/> <!-- lookup parent from repository -->
+</parent>
+<properties>
+    <java.version>1.8</java.version>
+    <spring-cloud.version>Hoxton.SR3</spring-cloud.version>
+</properties>
+```
+
+
+
+----
+
+
+
+### Fegin以及Hysteria应用
+
+##### Fegin和OpenFegin的关系
+
+Feign本身不支持Spring MVC的注解，它有一套自己的注解
+
+OpenFeign是Spring Cloud 在Feign的基础上支持了Spring MVC的注解，如@RequesMapping等等。
+OpenFeign的`@FeignClient`可以解析SpringMVC的@RequestMapping注解下的接口，
+并通过动态代理的方式产生实现类，实现类中做负载均衡并调用其他服务。
+
+1、创建项目user-api
+
+依赖 spring-boot-starter-web
+
+```java
+package com.amazecode.userapi.api;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+
+/**
+ * 用户接口
+ * @Author: zhangyadong
+ * @Date: 2022/1/5 17:57
+ */
+@RequestMapping("/user")
+public interface RegisterApi {
+
+    @GetMapping("/isAlive")
+    public String isAlive();
+}
+```
+
+2、创建生产服务user-provider
+
+引入user-api依赖,并实现接口
+
+```java
+<dependency>
+            <groupId>com.amazecode</groupId>
+            <artifactId>user-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+```
+
+配置文件配置
+
+```java
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+server.port=7971
+spring.application.name=user-provider
+```
+
+实现引入的user-api接口
+
+```java
+package com.amazecode.userprovider.controller;
+
+import com.amazecode.userapi.api.RegisterApi;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * @Author: zhangyadong
+ * @Date: 2022/1/5 18:13
+ */
+@RestController
+public class UserController implements RegisterApi {
+
+    @Value("${spring.application.name}")
+    private String applicationName;
+
+    @Value("${server.port}")
+    private String port;
+
+    @Override
+    public String isAlive() {
+        System.out.println("调用了。。。。。。。。。。。");
+        return applicationName + "---" + port;
+    }
+}
+
+```
+
+3、创建消费服务consumer-provider
+
+引入必要依赖以及user-api依赖
+
+```java
+<dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+
+        <!-- HttpClient 实现 -->
+        <dependency>
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-httpclient</artifactId>
+        </dependency>
+
+        <!-- 引入自定义user-api -->
+        <dependency>
+            <groupId>com.amazecode</groupId>
+            <artifactId>user-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+        </dependency>
+```
+
+设置配置文件
+
+```java
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+server.port=7981
+spring.application.name=user-consumer
+
+#连接超时时间(ms)
+ribbon.ConnectTimeout=1000
+#业务逻辑超时时间(ms)
+ribbon.ReadTimeout=2000
+#同一台实例最大重试次数,不包括首次调用
+ribbon.MaxAutoRetries=3
+#重试负载均衡其他的实例最大重试次数,不包括首次调用
+ribbon.MaxAutoRetriesNextServer=3
+#是否所有操作都重试
+ribbon.OkToRetryOnAllOperations=false
+```
+
+启动类添加Fegin注解
+
+```java
+@EnableFeignClients 
+```
+
+调用user-api接口
+
+api
+
+```java
+package com.amazecode.userconsumer.api;
+
+import com.amazecode.userapi.api.RegisterApi;
+import org.springframework.cloud.openfeign.FeignClient;
+
+/**
+ * 不结合eureka，就是自定义一个client名字。就用url属性指定 服务器列表。url=“http://ip:port/”
+ * @Author: zhangyadong
+ * @Date: 2022/1/5 18:47
+ */
+@FeignClient(name = "user-provider")
+public interface ConsumerApi extends RegisterApi {
+
+}
+```
+
+controller
+
+```java
+package com.amazecode.userconsumer.controller;
+
+import com.amazecode.userconsumer.api.ConsumerApi;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * @Author: zhangyadong
+ * @Date: 2022/1/5 18:35
+ */
+@RestController
+public class ConsumerController {
+
+    @Autowired
+    ConsumerApi consumerApi;
+
+    @GetMapping("/getAlive")
+    public String getAlive() {
+        System.out.println("user-consumer执行了.................");
+        return consumerApi.isAlive();
+    }
+}
+
+```
+
+启动注册中心、user-provider、user-consumer测试fegin方式是否能调通
+
+*注意点：@FeginClient引入的是OpenFeign依赖，Fegin不支持SpringMvc注解*
+
+**如果user-provider开启了权限认证，消费端如何进行访问配置**
+
+两种方式：自定义配置类，增加拦截器
+
+（1）、自定义配置
+
+```java
+配置类：
+public class FeignAuthConfiguration {
+	
+	@Bean
+	public BasicAuthRequestInterceptor basicAuthRequestInterceptor() {
+		return new BasicAuthRequestInterceptor("root", "root");
+	}
+}
+
+在feign上加配置
+@FeignClient(name = "user-provider",configuration = FeignAuthConfiguration.class)
+```
+
+小结：如果在配置类上添加了@Configuration注解，并且该类在@ComponentScan所扫描的包中，那么该类中的配置信息就会被所有的@FeignClient共享。最佳实践是：不指定@Configuration注解（或者指定configuration，用注解忽略），而是手动：
+
+@FeignClient(name = "user-provider",configuration = FeignAuthConfiguration.class)
+
+(2)、拦截器
+
+```java
+import feign.RequestInterceptor;
+import feign.RequestTemplate;
+
+public class MyBasicAuthRequestInterceptor implements RequestInterceptor {
+
+	@Override
+	public void apply(RequestTemplate template) {
+		// TODO Auto-generated method stub
+		template.header("Authorization", "Basic cm9vdDpyb290");
+	}
+}
+
+feign:
+  client: 
+    config:  
+      service-valuation: 
+        request-interceptors:
+        - com.amazecode.interceptor.MyBasicAuthRequestInterceptor
+```
+
+## 原理
+
+1. 主程序入口添加@EnableFeignClients注解开启对Feign Client扫描加载处理。根据Feign Client的开发规范，定义接口并加@FeignClient注解。
+2. 当程序启动时，会进行包扫描，扫描所有@FeignClient注解的类，并将这些信息注入Spring IoC容器中。当定义的Feign接口中的方法被调用时，通过JDK的代理方式，来生成具体的RequestTemplate。当生成代理时，Feign会为每个接口方法创建一个RequestTemplate对象，该对象封装了HTTP请求需要的全部信息，如请求参数名、请求方法等信息都在这个过程中确定。
+3. 然后由RequestTemplate生成Request，然后把这个Request交给client处理，这里指的Client可以是JDK原生的URLConnection、Apache的Http Client，也可以是Okhttp。最后Client被封装到LoadBalanceClient类，这个类结合Ribbon负载均衡发起服务之间的调用。
