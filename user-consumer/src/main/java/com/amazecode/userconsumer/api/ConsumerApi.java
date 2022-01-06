@@ -1,6 +1,7 @@
 package com.amazecode.userconsumer.api;
 
 import com.amazecode.userapi.api.RegisterApi;
+import com.amazecode.userconsumer.api.fallback.ConsumerBack;
 import org.springframework.cloud.openfeign.FeignClient;
 
 /**
@@ -8,7 +9,7 @@ import org.springframework.cloud.openfeign.FeignClient;
  * @Author: zhangyadong
  * @Date: 2022/1/5 18:47
  */
-@FeignClient(name = "user-provider")
+@FeignClient(name = "user-provider", fallbackFactory = ConsumerBack.class)
 public interface ConsumerApi extends RegisterApi {
 
 }

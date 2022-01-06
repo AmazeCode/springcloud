@@ -726,7 +726,7 @@ ribbon.listOfServers=localhost:8091,localhost:8092
 
 
 
-### Fegin以及Hysteria应用
+### Fegin
 
 ##### Fegin和OpenFegin的关系
 
@@ -853,6 +853,7 @@ eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
 server.port=7981
 spring.application.name=user-consumer
 
+# fegin默认支持ribbon,Ribbon的重试机制和Fegin重试机制有冲突，所有源码中默认关闭Fegin的重试机制，使用Ribbon的重试机制
 #连接超时时间(ms)
 ribbon.ConnectTimeout=1000
 #业务逻辑超时时间(ms)
@@ -925,6 +926,88 @@ public class ConsumerController {
 
 *注意点：@FeginClient引入的是OpenFeign依赖，Fegin不支持SpringMvc注解*
 
+**Fegin调用第三方系统接口方式**
+
+1、创建调用第三方接口的fegin，注解标注第三方接口url，注意和调用服务配置的区别
+
+*调用系统内部接口配置：@FeignClient(name = "user-provider")*
+
+*调用第三方接口配置：@FeignClient(name = "other-system-api",url = "http://ip:8888/")*
+
+```java
+package com.amazecode.userconsumer.api;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+
+/**
+ * 访问第三方系统接口方式
+ * @Author: zhangyadong
+ * @Date: 2022/1/6 8:52
+ */
+@FeignClient(name = "other-system-api",url = "http://ip:8888/")
+public interface OtherSystemApi {
+
+    /**
+     * 访问第三方服务返回数据
+     */
+    @GetMapping("/songList")
+    String getData();
+}
+```
+
+2、Controller正常引入调用即可
+
+```java
+package com.amazecode.userconsumer.controller;
+
+import com.amazecode.userconsumer.api.ConsumerApi;
+import com.amazecode.userconsumer.api.OtherSystemApi;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * @Author: zhangyadong
+ * @Date: 2022/1/5 18:35
+ */
+@RestController
+public class ConsumerController {
+
+    @Autowired
+    ConsumerApi consumerApi;
+
+    @Autowired
+    OtherSystemApi otherSystemApi;
+
+    /**
+     * @description: fegin调用系统内部服务
+     * @param:
+     * @return: java.lang.String
+     * @author: zhangyadong
+     * @date: 2022/1/6 8:57
+     */
+    @GetMapping("/getAlive")
+    public String getAlive() {
+        System.out.println("user-consumer执行了.................");
+        return consumerApi.isAlive();
+    }
+
+    /**
+     * @description: fegin调用第三方系统接口
+     * @param:
+     * @return: java.lang.String
+     * @author: zhangyadong
+     * @date: 2022/1/6 9:00
+     */
+    @GetMapping("/thirdApi")
+    public String getThirdApi() {
+        String data = otherSystemApi.getData();
+        return data;
+    }
+}
+```
+
 **如果user-provider开启了权限认证，消费端如何进行访问配置**
 
 两种方式：自定义配置类，增加拦截器
@@ -977,3 +1060,566 @@ feign:
 1. 主程序入口添加@EnableFeignClients注解开启对Feign Client扫描加载处理。根据Feign Client的开发规范，定义接口并加@FeignClient注解。
 2. 当程序启动时，会进行包扫描，扫描所有@FeignClient注解的类，并将这些信息注入Spring IoC容器中。当定义的Feign接口中的方法被调用时，通过JDK的代理方式，来生成具体的RequestTemplate。当生成代理时，Feign会为每个接口方法创建一个RequestTemplate对象，该对象封装了HTTP请求需要的全部信息，如请求参数名、请求方法等信息都在这个过程中确定。
 3. 然后由RequestTemplate生成Request，然后把这个Request交给client处理，这里指的Client可以是JDK原生的URLConnection、Apache的Http Client，也可以是Okhttp。最后Client被封装到LoadBalanceClient类，这个类结合Ribbon负载均衡发起服务之间的调用。
+
+**开启日志配置(user-consumer)**
+
+```
+# 设置fegin打印日志等级
+logging.level.com.amazecode.userconsumer:debug
+```
+
+**重写日志等级(user-consumer)**
+
+```java
+package com.amazecode.userconsumer.config;
+
+import feign.Logger;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * 自定义Fegin配置
+ * @Author: zhangyadong
+ * @Date: 2022/1/6 9:39
+ */
+@Configuration
+public class FeginConfig {
+
+    /**
+     * 自定义fegin日志级别
+     * 配置文件需要开启日志支持
+     * # 设置fegin打印日志等级
+     * logging.level.com.amazecode.userconsumer:debug
+     */
+    @Bean
+    public Logger.Level logLevel(){
+        return Logger.Level.BASIC;
+    }
+}
+```
+
+-----
+
+### Hystrix
+
+**服务熔断**
+
+服务熔断的作用类似于我们家用的保险丝，当某服务出现不可用或响应超时的情况时，为了防止整个系统出现雪崩，暂时停止对该服务的调用。
+
+**服务降级**
+
+服务降级是从整个系统的负荷情况出发和考虑的，对某些负荷会比较高的情况，为了预防某些功能（业务场景）出现负荷过载或者响应慢的情况，在其内部暂时舍弃对一些非核心的接口和数据的请求，而直接返回一个提前准备好的fallback（退路）错误处理信息。这样，虽然提供的是一个有损的服务，但却保证了整个系统的稳定性和可用性。
+
+**熔断VS降级**
+
+​	相同点：
+
+​		※ 目标一致 都是从可用性和可靠性出发，为了防止系统崩溃；
+
+ 	   ※ 用户体验类似 最终都让用户体验到的是某些功能暂时不可用；
+
+​    不同点：
+
+​	触发原因不同 服务熔断一般是某个服务（下游服务）故障引起，而服务降级一般是从整体负荷考虑；
+
+代码:(为了简单点，继续在原有项目user-consumer上进行新增)
+
+**1、添加Hystrix依赖**
+
+```java
+<dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+        </dependency>
+```
+
+**2、开启配置**
+
+```java
+# 开启熔断
+feign.hystrix.enabled=true
+management.endpoints.web.exposure.include=*
+# 隔离策略，默认是Thread, 可选:线程隔离-Thread｜信号量隔离-Semaphore
+hystrix.command.default.execution.isolation.strategy=SEMAPHORE
+```
+
+**3、启动类开启注解**
+
+```java
+@EnableCircuitBreaker // Hystrix注解
+```
+
+**4、修改ConsumerApi**
+
+```java
+package com.amazecode.userconsumer.api;
+
+import com.amazecode.userapi.api.RegisterApi;
+import com.amazecode.userconsumer.api.fallback.ConsumerBack;
+import org.springframework.cloud.openfeign.FeignClient;
+
+/**
+ * 不结合eureka，就是自定义一个client名字。就用url属性指定 服务器列表。url=“http://ip:port/”
+ * @Author: zhangyadong
+ * @Date: 2022/1/5 18:47
+ */
+@FeignClient(name = "user-provider", fallback = ConsumerBack.class)
+public interface ConsumerApi extends RegisterApi {
+
+}
+```
+
+新增fallback处理
+
+```java
+package com.amazecode.userconsumer.api.fallback;
+
+import com.amazecode.userconsumer.api.ConsumerApi;
+import org.springframework.stereotype.Component;
+
+/**
+ * 熔断处理
+ * @Author: zhangyadong
+ * @Date: 2022/1/6 9:33
+ */
+@Component // 需要交给spring管理
+public class ConsumerBack implements ConsumerApi {
+
+    @Override
+    public String isAlive() {
+        return "降级了。。。。。。";
+    }
+}
+```
+
+另外一种写法(FallBackFactory)
+
+```java
+package com.amazecode.userconsumer.api;
+
+import com.amazecode.userapi.api.RegisterApi;
+import com.amazecode.userconsumer.api.fallback.ConsumerBack;
+import org.springframework.cloud.openfeign.FeignClient;
+
+/**
+ * 不结合eureka，就是自定义一个client名字。就用url属性指定 服务器列表。url=“http://ip:port/”
+ * @Author: zhangyadong
+ * @Date: 2022/1/5 18:47
+ */
+@FeignClient(name = "user-provider", fallbackFactory = ConsumerBack.class)
+public interface ConsumerApi extends RegisterApi {
+
+}
+
+```
+
+```java
+package com.amazecode.userconsumer.api.fallback;
+
+import com.amazecode.userconsumer.api.ConsumerApi;
+import feign.hystrix.FallbackFactory;
+import org.springframework.stereotype.Component;
+
+/**
+ * 熔断处理
+ * @Author: zhangyadong
+ * @Date: 2022/1/6 9:33
+ */
+@Component // 需要交给spring管理
+public class ConsumerBack implements FallbackFactory<ConsumerApi> {
+
+    @Override
+    public ConsumerApi create(Throwable throwable) {
+
+        return new ConsumerApi() {
+
+            /*
+                走降级的两种场景：
+                1、调用的服务内部报错，直接走降级
+                2、调用的如果是单个服务，服务宕机，会在超时重试时间阈值后，走服务降级
+             */
+            @Override
+            public String isAlive() {
+                return "服务降级了。。。。。。。。。。。。";
+            }
+        };
+    }
+}
+```
+
+**Hystrix信号量隔离与线程隔离**
+
+默认情况下hystrix使用线程池控制请求隔离
+
+线程池隔离技术，是用 Hystrix 自己的线程去执行调用；而信号量隔离技术，是直接让 tomcat 线程去调用依赖服务。信号量隔离，只是一道关卡，信号量有多少，就允许多少个 tomcat 线程通过它，然后去执行。
+
+信号量隔离主要维护的是Tomcat的线程，不需要内部线程池，更加轻量级。
+
+配置项目详解：
+
+```sh
+hystrix.command.default.execution.isolation.strategy 隔离策略，默认是Thread, 可选Thread｜Semaphore
+thread 通过线程数量来限制并发请求数，可以提供额外的保护，但有一定的延迟。一般用于网络调用
+semaphore 通过semaphore count来限制并发请求数，适用于无网络的高并发请求
+hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds 命令执行超时时间，默认1000ms
+hystrix.command.default.execution.timeout.enabled 执行是否启用超时，默认启用true
+hystrix.command.default.execution.isolation.thread.interruptOnTimeout 发生超时是是否中断，默认true
+hystrix.command.default.execution.isolation.semaphore.maxConcurrentRequests 最大并发请求数，默认10，该参数当使用ExecutionIsolationStrategy.SEMAPHORE策略时才有效。如果达到最大并发请求数，请求会被拒绝。理论上选择semaphore size的原则和选择thread size一致，但选用semaphore时每次执行的单元要比较小且执行速度快（ms级别），否则的话应该用thread。
+semaphore应该占整个容器（tomcat）的线程池的一小部分。
+```
+
+**开启Hystrix-Dashboard**
+
+启动类
+
+```java
+@EnableHystrixDashboard // 启用Hystrix注解
+@EnableHystrixDashboard // 启用Hystrix管理页面
+```
+
+依赖
+
+```java
+<!-- hystrix-dashboard 依赖 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>
+                spring-cloud-starter-netflix-hystrix-dashboard
+            </artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+```
+
+开启配置：
+
+```java
+# 可以远程关闭服务节点
+management.endpoint.shutdown.enabled=true
+# 可以上报服务的真实健康状态
+eureka.client.healthcheck.enabled=true
+```
+
+健康上报(向注册中心发送ping)
+
+http://localhost:7981/actuator/hystrix.stream
+
+Hystrix图形化监控页面
+
+http://localhost:7981/hystrix
+
+输入地址进行监控：
+
+http://localhost:7981/actuator/hystrix.stream  然后点击Monitor Stream即可，想要有监控数据显示，需要调用下服务进行数据请求
+
+### 链路追踪
+
+如果能跟踪每个请求，中间请求经过哪些微服务，请求耗时，网络延迟，业务逻辑耗时等。我们就能更好地分析系统瓶颈、解决系统问题。因此链路跟踪很重要。
+
+我们自己思考解决方案：在调用前后加时间戳。捕获异常。
+
+链路追踪目的：解决错综复杂的服务调用中链路的查看。排查慢服务
+
+```
+zipkin,twitter开源的。是严格按照谷歌的Dapper论文来的。
+pinpoint 韩国的 Naver公司的。
+Cat 美团点评的
+EagleEye 淘宝的
+```
+
+**链路追踪要考虑的几个问题**
+
+1. 探针的性能消耗。尽量不影响 服务本尊。
+2. 易用。开发可以很快接入，别浪费太多精力。
+3. 数据分析。要实时分析。维度足够。
+
+**Sleuth简介**
+
+Sleuth是Spring cloud的分布式跟踪解决方案。
+
+1. span(跨度)，基本工作单元。一次链路调用，创建一个span，
+
+   span用一个64位id唯一标识。包括：id，描述，时间戳事件，spanId,span父id。
+
+   span被启动和停止时，记录了时间信息，初始化span叫：root span，它的span id和trace id相等。
+
+2. trace(跟踪)，一组共享“root span”的span组成的树状结构 称为 trace，trace也有一个64位ID，trace中所有span共享一个trace id。类似于一颗 span 树。
+
+3. annotation（标签），annotation用来记录事件的存在，其中，核心annotation用来定义请求的开始和结束。
+
+   - CS(Client Send客户端发起请求)。客户端发起请求描述了span开始。
+   - SR(Server Received服务端接到请求)。服务端获得请求并准备处理它。SR-CS=网络延迟。
+   - SS（Server Send服务器端处理完成，并将结果发送给客户端）。表示服务器完成请求处理，响应客户端时。SS-SR=服务器处理请求的时间。
+   - CR（Client Received 客户端接受服务端信息）。span结束的标识。客户端接收到服务器的响应。CR-CS=客户端发出请求到服务器响应的总时间。
+
+**使用**
+
+**Sleuth和zipkin使用**
+
+1、每个服务(user-consumer、user-provider)需要监控的系统都需要引入依赖
+
+```java
+<!-- 引入sleuth依赖 -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-sleuth</artifactId>
+		</dependency>
+    <!-- zipkin -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-zipkin</artifactId>
+        </dependency>
+```
+
+**zipkin**
+
+zipkin是twitter开源的分布式跟踪系统。
+
+原理收集系统的时序数据，从而追踪微服务架构中系统延时等问题。还有一个友好的界面。
+
+由4个部分组成：
+
+Collector、Storage、Restful API、Web UI组成
+
+采集器，存储器，接口，UI。
+
+原理：
+
+sleuth收集跟踪信息通过http请求发送给zipkin server，zipkin将跟踪信息存储，以及提供RESTful API接口，zipkin ui通过调用api进行数据展示。
+
+默认内存存储，可以用mysql，ES等存储。
+
+2、添加配置
+
+```java
+# 链路追踪
+spring.zipkin.base-url=http://localhost:9411
+# 采样比例
+spring.sleuth.sampler.rate=1
+```
+
+3、启动zipkin。
+
+```
+官网地址：https://zipkin.io/pages/quickstart.html
+jar包下载：curl -sSL https://zipkin.io/quickstart.sh | bash -s
+我放到了 目录：D:\  下面。
+java -jar zipkin-server-2.23.16-exec.jar
+或者docker：
+docker run -d -p 9411:9411 openzipkin/zipkin
+```
+
+![image-20220106154253652](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\zipkin-server.png)
+
+zipkin管理页面
+
+http://localhost:9411/
+
+![image-20220106160129254](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\zipkin-admin.png)
+
+### Admin健康检查
+
+1、添加依赖(**user-consumer**)
+
+```java
+<!-- admin -->
+        <dependency>
+            <groupId>de.codecentric</groupId>
+            <artifactId>spring-boot-admin-starter-client</artifactId>
+            <version>2.2.1</version>
+        </dependency>
+```
+
+2、添加admin配置
+
+```java
+# Admin 健康检查
+management.endpoint.health.show-details=always
+# admin 服务
+spring.boot.admin.client.url=http://localhost:8080
+```
+
+3、创建admin服务
+
+新建springboot项目admin，引入依赖
+
+```java
+server端：
+<!-- Spring Cloud Admin -->
+		<dependency>
+			<groupId>de.codecentric</groupId>
+			<artifactId>spring-boot-admin-starter-server</artifactId>
+			<version>2.2.1</version>
+		</dependency>
+		<!-- Admin 界面 -->
+		<dependency>
+			<groupId>de.codecentric</groupId>
+			<artifactId>spring-boot-admin-server-ui</artifactId>
+			<version>2.2.1</version>
+		</dependency>
+```
+
+添加配置文件
+
+```java
+spring.application.name=admin
+# 应用服务web访问端口
+server.port=8080
+# ActuatorWeb访问端口
+management.server.port=8081
+management.endpoints.jmx.exposure.include=*
+management.endpoints.web.exposure.include=*
+management.endpoint.health.show-details=always
+```
+
+启动类
+
+```java
+@EnableAdminServer // 开启Admin服务
+```
+
+启动服务访问管理页面
+
+http://localhost:8081
+
+![image-20220106165327994](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\admin-manage.png)
+
+*整合发送邮件发送邮件以及钉钉通知，参考admin模块代码*
+
+### 网关
+
+Starter阿里云镜像
+
+https://start.aliyun.com/
+
+**概念**
+
+服务治理，服务注册发现，服务调用，熔断。已经学完。
+
+微服务没有网关，会有下面的问题：
+
+1. 客户端请求多个微服务，增加了客户端复杂性，每个微服务都要做用户认证，限流等，避免和多个微服务打交道的复杂性。
+
+2. 有跨域问题，不在同一个域。
+
+3. 认证复杂，每个服务都要独立认证，服务要求的权限不一致。
+
+4. 难以重构。因为微服务被客户端调用着，重构难以实施。
+
+
+网关是介于客户端（外部调用方比如app，h5）和微服务的中间层。
+
+Zuul是Netflix开源的微服务网关，核心是一系列过滤器。这些过滤器可以完成以下功能。
+
+1. 是所有微服务入口，进行分发。
+2. 身份认证与安全。识别合法的请求，拦截不合法的请求。
+3. 监控。在入口处监控，更全面。
+4. 动态路由。动态将请求分发到不同的后端集群。
+5. 压力测试。可以逐渐增加对后端服务的流量，进行测试。
+6. 负载均衡。也是用ribbon。
+7. 限流（望京超市）。比如我每秒只要1000次，10001次就不让访问了。
+8. 服务熔断
+
+网关和服务的关系：演员和剧场检票人员的关系。
+
+zuul默认集成了：ribbon和hystrix。
+
+1、新建项目（zull），引入依赖
+
+```java
+<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-zuul</artifactId>
+		</dependency>
+```
+
+2、启动类
+
+```java
+@EnableZuulProxy
+```
+
+3、配置文件
+
+```java
+# 应用名称
+spring.application.name=zuul
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+server.port=80
+
+# 路由端点 调试的时候，看网关请求的地址，以及 映射是否正确。网关请求有误时，可以通过此处排查错误。
+#  开放所有站点
+management.endpoints.web.exposure.include=*
+# 健康详情
+management.endpoint.health.show-details=always
+# 开启健康检查
+management.endpoint.health.enabled=true
+# 开启路由
+management.endpoint.routes.enabled=true
+```
+
+测试访问
+
+网关会将服务名转换成具体服务的ip和端口，实际进行访问
+
+```
+http://localhost/user-consumer/getAlive
+```
+
+**配置指定微服务的访问路径**
+
+1、通过指定服务名访问(虚拟主机名)
+
+```java
+# 通过服务名配置虚拟主机名(user-consumer为实际存在的服务名)
+zuul.routes.user-consumer=/xxoo/**
+```
+
+访问方式：
+
+```
+http://localhost/xxoo/getAlive
+```
+
+2、自定义访问路径
+
+```java
+# 自定义映射路径
+zuul.routes.xxs.path=/xx/**
+zuul.routes.xxs.service-id=xx
+zuul.routes.xxs.url=http://baidu.com
+```
+
+访问方式
+
+```
+http://localhost/xx/getAlive
+```
+
+**忽略微服务**
+
+配置
+
+```
+zuul.ignored-services=user-provider
+```
+
+**前缀**
+
+```
+zuul.prefix=/api/v1
+```
+
+带上前缀请求
+
+```
+zuul.strip-prefix=false
+```
+
+### 
