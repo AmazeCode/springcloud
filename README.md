@@ -6,7 +6,7 @@
 
 #### 注册中心和微服务间的关系
 
-> ![eureka-server-client](img\eureka-server-client.png) 《服务注册与发现关系图》
+> ![eureka-server-client(./img/eureka-server-client.png) 《服务注册与发现关系图》
 
 #### client功能
 
