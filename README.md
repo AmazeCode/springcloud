@@ -1610,10 +1610,23 @@ http://localhost/xx/getAlive
 zuul.ignored-services=user-provider
 ```
 
+访问方式
+
+```java
+# 请求不通,拦截user-provider服务
+http://localhost/api/v1/user-provider/user/isAlive
+```
+
 **前缀**
 
 ```
 zuul.prefix=/api/v1
+```
+
+访问方式
+
+```java
+http://localhost/api/v1/xxoo/getAlive
 ```
 
 带上前缀请求
@@ -1622,4 +1635,653 @@ zuul.prefix=/api/v1
 zuul.strip-prefix=false
 ```
 
-### 
+## 配置中心
+
+### 为什么需要配置中心
+
+单体应用，配置写在配置文件中，没有什么大问题。如果要切换环境 可以切换不同的profile（2种方式），但在微服务中。
+
+1. 微服务比较多。成百上千，配置很多，需要集中管理。
+
+2. 管理不同环境的配置。
+
+3. 需要动态调整配置参数，更改配置不停服。
+
+   
+
+### 配置中心介绍
+
+分布式配置中心包括3个部分：
+
+1. 存放配置的地方：git ，本地文件 等。
+2. config  server。从 1 读取配置。
+3. config client。是 config server 的客户端 消费配置
+
+### 配置服务搭建
+
+**1、创建仓库**
+
+![image-20220107092332654](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\gitee-config.png)
+
+登录gitee创建仓库，并上传几个配置文件
+
+**2、新建微服务作为配置中心服务(config-center)**
+
+依赖
+
+```java
+<!-- eureka -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+</dependency>
+<!-- config中心依赖 -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-config-server</artifactId>
+</dependency>
+```
+
+配置文件
+
+```java
+# 应用名称
+spring.application.name=config-center
+server.port=6900
+# 指定配置地址
+spring.cloud.config.server.git.uri=https://gitee.com/AmazeCode/config-center.git
+# 指定分支
+spring.cloud.config.label=master
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+```
+
+启动类
+
+```java
+package com.amazecode.configcenter;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.config.server.EnableConfigServer;
+
+@SpringBootApplication
+@EnableConfigServer // 启动配置服务注解
+public class ConfigCenterApplication {
+
+    /*
+        获取配置规则：根据前缀匹配
+        /{name}-{profiles}.properties
+        /{name}-{profiles}.yml
+        /{name}-{profiles}.json
+        /{label}/{name}-{profiles}.yml
+
+        name 服务名称
+        profile 环境名称，开发、测试、生产：dev qa prd
+        lable 仓库分支、默认master分支
+
+        匹配原则：从前缀开始。 命名一定如"xx-bb.properties"格式
+     */
+    public static void main(String[] args) {
+        SpringApplication.run(ConfigCenterApplication.class, args);
+    }
+}
+```
+
+**3、启动测试拉取**
+
+http://localhost:6900/master/application-s.properties
+
+拉取结果：(如果application.properties属性和application-s.properties默认会被拉取过来，属性一样则拉取的配置文件属性覆盖application.properties属性)
+
+```
+config.msg: "application-s"
+message: "application"
+```
+
+#### 配置文件匹配规则
+
+```
+获取配置规则：根据前缀匹配
+/{name}-{profiles}.properties
+/{name}-{profiles}.yml
+/{name}-{profiles}.json
+/{label}/{name}-{profiles}.yml
+
+name 服务名称
+profile 环境名称，开发、测试、生产：dev qa prd
+lable 仓库分支、默认master分支
+
+匹配原则：从前缀开始。反例：config.properties匹配不到
+```
+
+### 配置中心客户端配置
+
+新建config-consumer-client项目
+
+**配置文件**
+
+application.properties修改为bootstarp.properties
+
+```java
+# 应用名称
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+server.port=6901
+spring.application.name=user-consumer
+
+
+# fegin默认支持ribbon,Ribbon的重试机制和Fegin重试机制有冲突，所有源码中默认关闭Fegin的重试机制，使用Ribbon的重试机制
+#连接超时时间(ms)
+ribbon.ConnectTimeout=1000
+#业务逻辑超时时间(ms)
+ribbon.ReadTimeout=2000
+#同一台实例最大重试次数,不包括首次调用
+ribbon.MaxAutoRetries=3
+#重试负载均衡其他的实例最大重试次数,不包括首次调用
+ribbon.MaxAutoRetriesNextServer=3
+#是否所有操作都重试
+ribbon.OkToRetryOnAllOperations=false
+
+
+# 开启熔断
+feign.hystrix.enabled=true
+# 开放所有站点(refresh)
+management.endpoints.web.exposure.include=*
+# 可以远程关闭服务节点
+management.endpoint.shutdown.enabled=true
+# 可以上报服务的真实健康状态(需要actuator支持)
+eureka.client.healthcheck.enabled=true
+# 隔离策略，默认是Thread, 可选:线程隔离-Thread｜信号量隔离-Semaphore
+hystrix.command.default.execution.isolation.strategy=SEMAPHORE
+
+
+# 配置中心
+# 方式一:直接URL方式查找配置中心
+# spring.cloud.config.uri=http://localhost:6900/
+# 方式二：通过注册中心查找配置中心
+spring.cloud.config.discovery.enabled=true
+# 配置中心服务名
+spring.cloud.config.discovery.service-id=config-center
+# 指定拉取后缀 如 user-consumer-dev.properties
+spring.cloud.config.profile=dev
+# 拉取分支
+spring.cloud.config.label=master
+
+#配置中心的配置
+myconfig="Test xxxoo v1"
+```
+
+**引入依赖**
+
+```java
+	<!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- spring cloud eureka -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- 健康检查需要依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- spring cloud openfeign -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!-- HttpClient 实现 -->
+        <dependency>
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-httpclient</artifactId>
+        </dependency>
+        <!-- hystrix 依赖 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+        </dependency>
+        <!-- hystrix-dashboard 依赖 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>
+                spring-cloud-starter-netflix-hystrix-dashboard
+            </artifactId>
+        </dependency>
+        <!-- spring cloud config -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-config</artifactId>
+        </dependency>
+
+        <!-- 引入自定义user-api -->
+        <dependency>
+            <groupId>com.amazecode</groupId>
+            <artifactId>user-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+```
+
+**使用远程配置**
+
+user-consumer-dev.properties
+
+```sh
+myconfig="user-consumer-dev"
+```
+
+## 刷新配置
+
+### 手动配置热更新
+
+1. 启动类
+
+   ```java
+   package com.amazecode.configconsumer;
+   
+   import org.springframework.boot.SpringApplication;
+   import org.springframework.boot.autoconfigure.SpringBootApplication;
+   import org.springframework.cloud.client.circuitbreaker.EnableCircuitBreaker;
+   import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+   import org.springframework.cloud.netflix.hystrix.dashboard.EnableHystrixDashboard;
+   import org.springframework.cloud.openfeign.EnableFeignClients;
+   
+   @SpringBootApplication
+   @EnableDiscoveryClient // 可让注册中心发现，适用范围广，不仅限于eureka注册中心
+   @EnableFeignClients // 启用Fegin远程调用注解
+   @EnableCircuitBreaker // 启用Hystrix注解
+   @EnableHystrixDashboard // 启用Hystrix管理页面
+   public class ConfigConsumerClientApplication {
+   
+       public static void main(String[] args) {
+           SpringApplication.run(ConfigConsumerClientApplication.class, args);
+       }
+   
+   }
+   ```
+
+2. 开启actuator中的refresh端点
+
+3. Controller中添加`@RefreshScope`注解
+
+   ```java
+   package com.amazecode.configconsumer.controller;
+   
+   import com.amazecode.configconsumer.api.ConfigConsumerApi;
+   import org.springframework.beans.factory.annotation.Autowired;
+   import org.springframework.beans.factory.annotation.Value;
+   import org.springframework.cloud.context.config.annotation.RefreshScope;
+   import org.springframework.web.bind.annotation.GetMapping;
+   import org.springframework.web.bind.annotation.RestController;
+   
+   /**
+    * @Author: zhangyadong
+    * @Date: 2022/1/7 9:58
+    */
+   @RestController
+   @RefreshScope // 配置变更动态刷新
+   public class ConfigConsumerController {
+   
+       @Autowired
+       ConfigConsumerApi configConsumerApi;
+   
+       /**
+        * @description: fegin调用系统内部服务
+        * @param:
+        * @return: java.lang.String
+        * @author: zhangyadong
+        * @date: 2022/1/6 8:57
+        */
+       @GetMapping("/getAlive")
+       public String getAlive() {
+           System.out.println("config-consumer执行了.................");
+           return "config-" + configConsumerApi.isAlive();
+       }
+   
+       /**
+        * 从配置中心获取配置
+        */
+       @Value("${myconfig}")
+       String myconfig;
+   
+       /**
+        * 从配置中心获取配置
+        */
+       @GetMapping("/config")
+       public String myConfig() {
+           return myconfig;
+       }
+   }
+   ```
+
+4. 先访问下``http://localhost:6901/config`,查看配置文件值，然后修改gitee上user-consumer-dev.properties,的内容，重复访问发现值没有变化
+
+5. 向客户端 url `http://localhost:6901/actuator/refresh`发送Post请求
+
+6. 再次访问``http://localhost:6901/config`，会看到配置值被更新了
+
+### 自动刷新
+
+**erlang安装**
+
+`https://www.erlang.org/downloads`,采用windows安装
+
+**RabbitMQ安装**
+
+`https://www.rabbitmq.com/install-windows.html`,下载windows安装
+
+**配置erlang环境变量**
+
+`ERLANG_HOME=C:\DevelopSoftware\erl-24.2`
+
+path中添加`%ERLANG_HOME%\bin`
+
+cmd验证环境变量是否配置成功
+
+![image-20220107143021891](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\erl-cmd.png)
+
+**配置Rabbitmq环境变量**
+
+`C:\DevelopSoftware\rabbitmq-server-3.9.12\rabbitmq_server-3.9.12\sbin`,这样打开cmd就能运行rabbitmq命令
+
+![image-20220107143631116](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\rabbitmq-plugin-list.png)
+
+cmd开启rabbitmq相关配置
+
+```java
+# 启动RabbitMQ节点
+rabbitmqctl start_app
+# 停止RabbitMQ节点
+rabbitmqctl stop   
+# 开启RabbitMQ管理模块的插件，并配置到RabbitMQ节点上
+rabbitmq-plugins enable rabbitmq_management
+```
+
+**管理界面**
+
+http://localhost:15672
+
+用户名密码均为:guest
+
+**服务配置**
+
+**配置文件完整配置**
+
+config-center(application.properties)
+
+```java
+# 应用名称
+spring.application.name=config-center
+server.port=6900
+# 配置中心通过git从远程git库更新配置到本地，有时本地拷贝被污染,这时配置中心无法从远程库更新本地配置，设置force-pull=true，可以强制更新
+spring.cloud.config.server.git.force-pull=true
+# 指定配置地址(这里使用gitee作为git仓库)
+spring.cloud.config.server.git.uri=https://gitee.com/xx/config-center.git
+# 指定分支
+spring.cloud.config.label=master
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+
+
+# 开放所有站点(refresh)
+management.endpoints.web.exposure.include=*
+# 可以远程关闭服务节点
+management.endpoint.shutdown.enabled=true
+# 可以上报服务的真实健康状态(需要actuator支持)
+eureka.client.healthcheck.enabled=true
+
+# rabbitmq配置
+spring.rabbitmq.host=localhost
+spring.rabbitmq.port=5672
+spring.rabbitmq.username=guest
+spring.rabbitmq.password=guest
+
+```
+
+config-consumer-client(bootstrap.properties)
+
+```java
+# 应用名称
+eureka.client.service-url.defaultZone=http://localhost:7900/eureka/
+server.port=6901
+spring.application.name=user-consumer
+
+
+# fegin默认支持ribbon,Ribbon的重试机制和Fegin重试机制有冲突，所有源码中默认关闭Fegin的重试机制，使用Ribbon的重试机制
+#连接超时时间(ms)
+ribbon.ConnectTimeout=1000
+#业务逻辑超时时间(ms)
+ribbon.ReadTimeout=2000
+#同一台实例最大重试次数,不包括首次调用
+ribbon.MaxAutoRetries=3
+#重试负载均衡其他的实例最大重试次数,不包括首次调用
+ribbon.MaxAutoRetriesNextServer=3
+#是否所有操作都重试
+ribbon.OkToRetryOnAllOperations=false
+
+
+# 开启熔断
+feign.hystrix.enabled=true
+# 开放bus-refresh,springcloud 1.5之前配置*即可，2.0之后需要指定配置，否则找不到
+management.endpoints.web.exposure.include=*
+# 可以远程关闭服务节点
+management.endpoint.shutdown.enabled=true
+# 可以上报服务的真实健康状态(需要actuator支持)
+eureka.client.healthcheck.enabled=true
+# 隔离策略，默认是Thread, 可选:线程隔离-Thread｜信号量隔离-Semaphore
+hystrix.command.default.execution.isolation.strategy=SEMAPHORE
+
+
+# 配置中心
+# 方式一:直接URL方式查找配置中心
+spring.cloud.config.uri=http://localhost:6900/
+# 方式二：通过注册中心查找配置中心
+#spring.cloud.config.discovery.enabled=true
+# 配置中心服务名
+#spring.cloud.config.discovery.service-id=config-center
+# 指定拉取后缀 如 user-consumer-dev.properties
+spring.cloud.config.profile=dev
+# 拉取分支
+spring.cloud.config.label=master
+
+#配置中心的配置
+myconfig="Test xxxoo v1"
+
+# rabbitmq配置
+spring.rabbitmq.host=localhost
+spring.rabbitmq.port=5672
+spring.rabbitmq.username=guest
+spring.rabbitmq.password=guest
+```
+
+**完整依赖**
+
+config-center
+
+```java
+<!-- eureka -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- config中心依赖 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-config-server</artifactId>
+        </dependency>
+        <!-- actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- 添加支持mq总线支持 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+        </dependency>
+```
+
+config-consumer-client
+
+```java
+<!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- spring cloud eureka -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- 健康检查需要依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- spring cloud openfeign -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!-- HttpClient 实现 -->
+        <dependency>
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-httpclient</artifactId>
+        </dependency>
+        <!-- hystrix 依赖 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+        </dependency>
+        <!-- hystrix-dashboard 依赖 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix-dashboard</artifactId>
+        </dependency>
+        <!-- spring cloud config -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-config</artifactId>
+        </dependency>
+        <!-- 添加支持mq总线支持 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+        </dependency>
+
+        <!-- 引入自定义user-api -->
+        <dependency>
+            <groupId>com.amazecode</groupId>
+            <artifactId>user-api</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+```
+
+#### 测试
+
+启动微服务
+
+修改配置文件后，向配置中心发送post请求
+
+http://localhost:6900/actuator/bus-refresh
+
+刷新客户端获取配置的接口看是否刷新了配置
+
+http://localhost:6901/config
+
+**远程配置**
+
+**user-consumer-dev.properties**
+
+```
+myconfig="user-consumer-dev"
+```
+
+## 自动刷新配置
+
+**完整原理图**
+
+![image-20220108224557419](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\Auto-Refresh-detail.png)
+
+*注意：push配置成功后，配置中心就会去拉取最新配置，并不是在接收到config client拉取配置的请求后配置中心才去git仓库拉取配置的*
+
+**1、配置内网映射**
+
+这里使用的是Natapp，注册Natapp登录网站，申请免费隧道
+
+![image-20220108220951152](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\Natapp-register.png)
+
+配置对于config-center的映射
+
+![image-20220108221219024](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\Natapp-config-in.png)
+
+*注意这里的authtoken，后续启动客户端时会用*
+
+![image-20220108221454227](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\Natapp-config-detail.png)
+
+下载Natapp客户端(win客户端)`otp_win64_24.2.exe`,然后双击打开执行下面命令
+
+```
+# b0756359bba97994 即为上边natapp网站内配置隧道时显示的authtoken值
+natapp --authtoken=b0756359bba97994
+```
+
+![image-20220108222209101](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\Natapp-client.png)
+
+测试是否配置成功，修改user-consumer-dev.properties提交到gitee库后，post请求 http://qedgzk.natappfree.cc/actuator/bus-refresh后，消费端获取到最新配置说明内网映射成功
+
+**2、配置Gitee自动调用刷新接口(webhook)**
+
+首先在config-center项目中，创建一个controller，新增一个refresh接口，用于提供给gitee调用
+
+（原因:经过实践发现，gitee和github的webhook如果直接使用映射地址调用/bus-refresh接口会调用不通,故采用间接方法）
+
+```java
+package com.amazecode.configcenter.controller;
+
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+/**
+ * @Author: zhangyadong
+ * @Date: 2022/1/8 19:45
+ */
+@RestController
+public class RefreshController {
+
+    @PostMapping("/refresh")
+    public void refresh(){
+        RestTemplate restTemplate = new RestTemplate();
+        HttpHeaders httpHeaders = new HttpHeaders();
+        // 设置content_type为json要不然会报415的错误
+        httpHeaders.add(HttpHeaders.CONTENT_TYPE,"application/json");
+        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(null,httpHeaders);
+        // 以post方法访问真正的刷新链接
+        ResponseEntity<String> stringResponseEntity = restTemplate.postForEntity("http://localhost:6900/actuator/bus-refresh",
+                request, String.class);
+    }
+
+}
+```
+
+重启config-center、config-consumer-client服务
+
+配置webhook
+
+![image-20220108224151830](D:\Work\LearnSpace\SelfGitWorkSpace\AmazeCode\springcloud\img\Gitee-webhook.png)
+
+配置完成后，重新修改user-consumer-dev.properties的属性值，然后直接消费端获取配置查看是否能直接获取最新配置
+
+```
+http://localhost:6901/config
+```
+
+**spingcloud 项目全家桶暂时写到这里**
